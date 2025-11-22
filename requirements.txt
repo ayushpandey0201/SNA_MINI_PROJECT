@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+requests
+scholarly
+networkx
+node2vec
+gensim
+scikit-learn
+sqlalchemy
+python-dotenv
+sentence-transformers
+aiohttp
