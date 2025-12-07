@@ -17,12 +17,16 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from backend.storage import load_graph_as_networkx
 from backend.enrich import enrich_profile
 from backend.graph_ops import compute_node2vec_embeddings, save_embeddings_to_db
+from backend.fetchers.github import search_repositories
+from backend.fetchers.stackoverflow import search_questions
+from backend.fetchers.research import search_research_papers
+from backend.nlp_ops import classify_role_from_text
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("uvicorn")
 
-app = FastAPI(title="Dev-Intel API")
+app = FastAPI(title="GitStack Connect API")
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -135,112 +139,136 @@ def cosine_similarity(v1, v2):
         return 0.0
     return float(np.dot(v1, v2) / (norm1 * norm2))
 
-@lru_cache(maxsize=128)
-def _compute_recommendations(node_id: str, top_k: int):
-    """
-    Cached worker function for recommendations.
-    """
-    data = get_graph_data()
-    G = data["G"]
-    undirected_G = data["undirected_G"]
-    embeddings = data["embeddings"]
-    
-    if node_id not in G:
-        return None
-
-    # 1. Identify Candidates: All nodes except self and existing neighbors
-    # We want to recommend NEW connections.
-    neighbors = set(G.neighbors(node_id))
-    neighbors.add(node_id)
-    
-    # Filter candidates to prioritize Users and Repos (exclude tags for now to make it more "social")
-    candidates = [
-        n for n in G.nodes() 
-        if n not in neighbors 
-        and G.nodes[n].get('type') in ['github_user', 'github_repo', 'so_user']
-    ]
-    
-    if not candidates:
-        return []
-
-    # Get target node embedding
-    target_emb = embeddings.get(node_id)
-    
-    # 2. Pre-calculate Heuristic Scores (Jaccard)
-    # Jaccard Coefficient: Intersection / Union of neighbors
-    jaccard_scores = {}
-    try:
-        # nx.jaccard_coefficient returns iterator of (u, v, p)
-        # We pass pairs of (node_id, candidate)
-        pairs = [(node_id, candidate) for candidate in candidates]
-        preds = nx.jaccard_coefficient(undirected_G, pairs)
-        for u, v, p in preds:
-            # v is the candidate (or u, order doesn't matter in undirected)
-            other = v if u == node_id else u
-            jaccard_scores[other] = p
-    except Exception as e:
-        logger.error(f"Error computing Jaccard scores: {e}")
-        # Fallback to 0.0 for all
-        for c in candidates:
-            jaccard_scores[c] = 0.0
-
-    results = []
-    
-    for candidate in candidates:
-        # Embedding Similarity
-        cand_emb = embeddings.get(candidate)
-        
-        sim = 0.0
-        if target_emb is not None and cand_emb is not None:
-            sim = cosine_similarity(target_emb, cand_emb)
-            
-        # Heuristic Score
-        jacc = jaccard_scores.get(candidate, 0.0)
-        
-        # Combined Score
-        # Weights: 0.7 Embedding, 0.3 Heuristic (Boosted embedding weight)
-        final_score = (0.7 * sim) + (0.3 * jacc)
-        
-        # Only return if score > 0 to avoid "junk"
-        if final_score > 0:
-            results.append({
-                "node_id": candidate,
-                "score": round(final_score, 4),
-                "features": {
-                    "similarity": round(sim, 4),
-                    "jaccard": round(jacc, 4)
-                }
-            })
-        
-    # Sort by score descending
-    results.sort(key=lambda x: x["score"], reverse=True)
-    
-    return results[:top_k]
 
 @app.get("/")
 def read_root():
-    return {"message": "Dev-Intel API is running. Use /recommend/{node_id} to get recommendations."}
+    return {"message": "GitStack Connect API is running. Use /recommend/{node_id} to get recommendations."}
+
+from backend.recommendation import recommend_for_node
 
 @app.get("/recommend/{node_id}")
-def recommend_endpoint(node_id: str, limit: int = 10):
+def recommend_endpoint(node_id: str, limit: int = 7):
     """
     Get top-K recommendations for a given node based on graph embeddings and topology.
+    Falls back to GitHub Search if local recommendations are insufficient.
     """
     # Ensure graph is loaded
     data = get_graph_data()
+    G = data["G"]
     
-    if node_id not in data["G"]:
+    if node_id not in G:
         raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found in the graph.")
         
     try:
-        recommendations = _compute_recommendations(node_id, limit)
-        if recommendations is None:
-             raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found.")
-             
-        return recommendations
+        # 1. Local Graph Recommendations using new Service
+        local_recs = recommend_for_node(node_id, top_k=limit)
+        
+        results = local_recs
+        
+        # 2. Fallback: GitHub Search API
+        # If we have fewer than 'limit' results, fetch external suggestions
+        if len(results) < limit:
+            needed = limit - len(results)
+            logger.info(f"Local graph returned only {len(results)} recommendations. Fetching {needed} from GitHub API...")
+            
+            node_data = G.nodes[node_id]
+            
+            # Extract keywords for search
+            # 1. Top Language from owned repos (if available)
+            # 2. Top Topics from profile (if available)
+            
+            query_parts = []
+            
+            # Try to get language from connected repos
+            langs = []
+            topics = []
+            
+            # Simple heuristic: Check node data or neighbor repos
+            # Since strict node structure varies, we check neighbors for repo data
+            for n in G.neighbors(node_id):
+                node = G.nodes[n]
+                if node.get('type') == 'github_repo':
+                    l = node.get('language')
+                    if l: langs.append(l)
+                    
+                    # Topics might be stored as comma-sep string or list? 
+                    # In enrich.py 'topics' is a list.
+                    t_list = node.get('topics', [])
+                    if isinstance(t_list, list):
+                        topics.extend(t_list)
+            
+            # Add AI-derived context if available (from README analysis)
+            ai_role = node.get('ai_role')
+            if ai_role:
+                query_parts.append(ai_role.replace(' ', '+'))
+            
+            # Use most frequent language as strong filter
+            if langs:
+                top_lang = max(set(langs), key=langs.count)
+                query_parts.append(f"language:{top_lang}")
+                
+            # Add Top Topic (most frequent)
+            if topics:
+                # Filter generic topics if needed, but for now just take top 1
+                top_topic = max(set(topics), key=topics.count)
+                query_parts.append(f"topic:{top_topic}")
+                
+            # Add generic sorting if specific enough
+            query = " ".join(query_parts) if query_parts else "stars:>1000"
+            if not query.strip(): query = "stars:>1000"
+            
+            logger.info(f"Fallback Search Query (AI Enhanced): '{query}'")
+            
+            # Fetch from GitHub
+            external_repos = search_repositories(query, sort="stars", order="desc", page=1)
+            
+            existing_ids = {r["node_id"] for r in results}
+            
+            for item in external_repos.get("items", []):
+                if len(results) >= limit:
+                    break
+                    
+                # Avoid recommending self-owned or already recommended
+                # item['html_url'] is unique enough
+                repo_name = item['full_name'] # search_repositories returns dict with full_name
+                
+                # Check if user already owns/contributed (simple check by name)
+                is_connected = False
+                for n in G.neighbors(node_id):
+                     if n == repo_name: 
+                         is_connected = True
+                         break
+                
+                if is_connected:
+                    continue
+                    
+                if repo_name not in existing_ids:
+                    # Format as recommendation result
+                    results.append({
+                        "node_id": repo_name,
+                        "label": item.get('full_name') or item.get('name'), # Explicit label
+                        "type": "repository", # Explicit type
+                        "score": 0.5, # Lower score than local graph matches
+                        "features": {
+                            "source": "github_fallback",
+                            "language": item.get('language'),
+                            "stars": item.get('stargazers_count')
+                        },
+                        "name": item.get('name'),
+                        "full_name": item.get('full_name'),
+                        "description": item.get('description'),
+                        "html_url": item.get('html_url'),
+                        "language": item.get('language'),
+                        "stargazers_count": item.get('stargazers_count')
+                    })
+                    existing_ids.add(repo_name)
+
+        # Slice to requested limit (user asked for 4-6, standard is 10)
+        return results[:limit]
     except Exception as e:
         logger.error(f"Recommendation error: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error during recommendation.")
+        # Return whatever we have or empty list instead of 500
+        return []
 
 class FetchRequest(BaseModel):
     github_username: str
@@ -268,6 +296,7 @@ def enrich_endpoint(username: str):
     Get enriched profile for a GitHub username.
     """
     try:
+        print(f"DEBUG: Endpoint /enrich/{username} called")
         profile = enrich_profile(username)
         GRAPH_CACHE["G"] = None 
         return profile
@@ -278,32 +307,155 @@ def enrich_endpoint(username: str):
 @app.get("/predict/{user_id}")
 def predict_role(user_id: str):
     """
-    Predict the role (ML, Web, DevOps) for a given user.
+    Predict developer role based on text content.
+    Prioritizes AI-generated role if available, otherwise falls back to classifier.
     """
     # Ensure graph and model are loaded
     data = get_graph_data()
-    if GRAPH_CACHE["model"] is None:
-        load_model()
-        if GRAPH_CACHE["model"] is None:
-             raise HTTPException(status_code=503, detail="Model not available. Please train the model first.")
-             
-    embeddings = data["embeddings"]
-    if user_id not in embeddings:
-         raise HTTPException(status_code=404, detail=f"No embedding found for user '{user_id}'.")
-         
-    embedding = embeddings[user_id]
-    clf = GRAPH_CACHE["model"]
+    G = data.get("G")
     
-    try:
-        # Predict expects 2D array
-        prediction = clf.predict([embedding])[0]
-        probs = clf.predict_proba([embedding])[0]
+    if user_id not in G:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    node = G.nodes[user_id]
+    
+    # 1. Check for AI-generated specific role (Highest Priority)
+    # But only use it if it's not a generic/fallback role
+    ai_role = node.get("ai_role")
+    if ai_role and ai_role not in ["Developer", "Unknown", None, ""]:
+        # Use AI role but also get probabilities from text classifier for confidence
+        text_corpus = node.get("text_corpus", "")
+        probabilities = {}
+        if text_corpus:
+            try:
+                probabilities = classify_role_from_text(text_corpus)
+            except:
+                pass
+        
+        # If we have probabilities, use them; otherwise give AI role 100% confidence
+        if probabilities:
+            # Boost the AI role's probability
+            if ai_role in probabilities:
+                probabilities[ai_role] = min(probabilities[ai_role] * 1.5, 0.95)  # Cap at 95%
+            else:
+                probabilities[ai_role] = 0.8  # High confidence for AI role
+            # Renormalize
+            total = sum(probabilities.values())
+            probabilities = {k: round(v/total, 4) for k, v in probabilities.items()}
+        else:
+            probabilities = {ai_role: 1.0}
         
         return {
-            "user_id": user_id,
-            "predicted_role": prediction,
-            "probabilities": dict(zip(clf.classes_, probs))
+            "predicted_role": ai_role,
+            "probabilities": probabilities
+        }
+
+    # 2. Fallback to Text Classifier (Rule-based)
+    text_corpus = node.get("text_corpus", "")
+    if not text_corpus:
+        return {"predicted_role": "Developer", "probabilities": {"Developer": 1.0}}
+        
+    try:
+        probabilities = classify_role_from_text(text_corpus)
+        if not probabilities:
+             return {"predicted_role": "Developer", "probabilities": {"Developer": 1.0}}
+             
+        predicted_role = max(probabilities, key=probabilities.get)
+        
+        return {
+            "predicted_role": predicted_role,
+            "probabilities": probabilities
         }
     except Exception as e:
         logger.error(f"Prediction error: {e}")
-        raise HTTPException(status_code=500, detail="Error during prediction.")
+        return {"predicted_role": "Developer", "probabilities": {"Developer": 1.0}}
+
+
+@app.get("/metrics/{node_id}")
+def get_network_metrics(node_id: str):
+    """
+    Compute network centrality metrics for a node.
+    """
+    data = get_graph_data()
+    G = data["G"]
+    
+    if node_id not in G:
+         raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found.")
+         
+    try:
+        # Degree Centrality (normalized)
+        degree = nx.degree_centrality(G).get(node_id, 0)
+        
+        # Betweenness Centrality (expensive, so we limit k if graph is huge, but here it's small)
+        # For better performance on larger graphs, use k=100 or similar approximation
+        betweenness = nx.betweenness_centrality(G, k=None).get(node_id, 0)
+        
+        # Closeness Centrality
+        closeness = nx.closeness_centrality(G, u=node_id)
+        
+        # Composite Influence Score (0-100)
+        # Weighted combination of centralities (removed eigenvector as requested)
+        # Formula: (degree * 0.4 + betweenness * 0.4 + closeness * 0.2) * 100
+        influence_score = (degree * 0.4 + betweenness * 0.4 + closeness * 0.2) * 100
+        
+        # Community Detection (Greedy Modularity)
+        # We compute this for the whole graph (or subgraph) to find which community the node belongs to
+        # For performance, we might cache this, but for now we run it on demand for the demo
+        try:
+            # Louvain Community Detection (Requested by User)
+            communities = nx.community.louvain_communities(data["undirected_G"], seed=42)
+            
+            # Find community ID for the target node
+            node_community_id = -1
+            community_map = {} # Map node_id -> community_id for neighbors
+            
+            for i, comm in enumerate(communities):
+                if node_id in comm:
+                    node_community_id = i
+                
+                # Map for all nodes in this community (to send back relevant ones)
+                for n in comm:
+                    community_map[n] = i
+            
+        except Exception as comm_e:
+            logger.warning(f"Community detection failed: {comm_e}")
+            node_community_id = -1
+            community_map = {}
+
+        return {
+            "degree_centrality": round(degree, 4),
+            "betweenness_centrality": round(betweenness, 4),
+            "closeness_centrality": round(closeness, 4),
+            "influence_score": round(influence_score, 1),
+            "community_id": node_community_id,
+            "community_map": community_map
+        }
+    except Exception as e:
+        logger.error(f"Metrics error: {e}")
+        raise HTTPException(status_code=500, detail="Error computing metrics.")
+
+@app.get("/search/project")
+def search_project_endpoint(query: str, repo_page: int = 1, so_page: int = 1, paper_page: int = 1):
+    """
+    Search for project ideas across GitHub, StackOverflow, and Research Papers.
+    """
+    print(f"DEBUG: Received search request. Query: '{query}', Pages: repo={repo_page}, so={so_page}, paper={paper_page}")
+    try:
+        # Fetchers now return {"items": [], "has_next": bool}
+        repos = search_repositories(query, page=repo_page)
+        print(f"DEBUG: Repos found: {len(repos.get('items', []))}")
+        
+        questions = search_questions(query, page=so_page)
+        print(f"DEBUG: Questions found: {len(questions.get('items', []))}")
+        
+        papers = search_research_papers(query, page=paper_page)
+        print(f"DEBUG: Papers found: {len(papers.get('items', []))}")
+        
+        return {
+            "repos": repos,
+            "questions": questions,
+            "papers": papers
+        }
+    except Exception as e:
+        logger.error(f"Project search error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

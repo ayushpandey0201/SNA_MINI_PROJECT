@@ -1,7 +1,6 @@
 fastapi
 uvicorn
 requests
-scholarly
 networkx
 node2vec
 gensim
@@ -10,3 +9,7 @@ sqlalchemy
 python-dotenv
 sentence-transformers
 aiohttp
+beautifulsoup4
+lxml
+google-generativeai
+groq

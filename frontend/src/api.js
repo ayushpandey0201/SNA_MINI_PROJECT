@@ -89,4 +89,30 @@ export const fetchPrediction = async (userId) => {
         console.warn("Prediction API failed", error);
         return null;
     }
-}
+};
+
+export const fetchMetrics = async (nodeId) => {
+    try {
+        const response = await axios.get(`${API_BASE_URL}/metrics/${nodeId}`);
+        return response.data;
+    } catch (error) {
+        console.warn("Metrics API failed", error);
+        return null;
+    }
+};
+
+export const fetchProjectIdeas = async (query, pages = { repo: 1, so: 1, paper: 1 }) => {
+    try {
+        const params = {
+            query,
+            repo_page: pages.repo,
+            so_page: pages.so,
+            paper_page: pages.paper
+        };
+        const response = await axios.get(`${API_BASE_URL}/search/project`, { params });
+        return response.data;
+    } catch (error) {
+        console.warn("Project search API failed", error);
+        throw error;
+    }
+};
