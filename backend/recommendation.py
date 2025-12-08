@@ -4,6 +4,8 @@ import networkx as nx
 import numpy as np
 from typing import List, Dict, Any, Tuple
 
+from sentence_transformers import SentenceTransformer, util
+
 # Add parent directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -16,14 +18,88 @@ from backend.graph_ops import (
     combine_scores
 )
 
+# Lazy-loaded sentence transformer for profile-aware reranking
+_st_model = None
+
+
+def _get_st_model():
+    global _st_model
+    if _st_model is None:
+        _st_model = SentenceTransformer("all-MiniLM-L6-v2")
+    return _st_model
+
+
+def _profile_rerank(ranked_list: list, G: nx.DiGraph, user_node: dict, max_items: int = 50) -> list:
+    """
+    Rerank candidates using sentence-embedding similarity to the user profile
+    (role + languages + topics) plus existing graph scores.
+    """
+    if not ranked_list:
+        return ranked_list
+
+    # Build profile text from role, languages, topics
+    role = user_node.get("ai_role") or user_node.get("predicted_role") or ""
+    langs = user_node.get("top_repo_languages") or []
+    lang_tokens = []
+    for l in langs[:5]:
+        if isinstance(l, (list, tuple)):
+            lang_tokens.append(str(l[0]))
+        else:
+            lang_tokens.append(str(l))
+    topics = user_node.get("topics") or []
+
+    profile_parts = [
+        f"role: {role}",
+        f"languages: {' '.join(lang_tokens)}",
+        f"topics: {' '.join(map(str, topics[:8]))}",
+    ]
+    profile_text = " | ".join([p for p in profile_parts if p.strip()])
+
+    try:
+        model = _get_st_model()
+        profile_emb = model.encode(profile_text, convert_to_tensor=True)
+    except Exception:
+        return ranked_list  # fallback: no rerank
+
+    reranked = []
+    for node_id, score, features in ranked_list[:max_items]:
+        data = G.nodes[node_id]
+        cand_text = " ".join(
+            filter(
+                None,
+                [
+                    str(data.get("label") or data.get("name") or node_id),
+                    str(data.get("description") or ""),
+                    str(data.get("language") or ""),
+                    str(data.get("type") or ""),
+                ],
+            )
+        )
+        try:
+            cand_emb = model.encode(cand_text, convert_to_tensor=True)
+            sim = util.cos_sim(profile_emb, cand_emb).item()
+        except Exception:
+            sim = 0.0
+
+        # Combine original score with embedding similarity
+        combined = score + 0.6 * sim
+        reranked.append((node_id, combined, features))
+
+    reranked.sort(key=lambda x: x[1], reverse=True)
+    # For items beyond max_items, append unchanged
+    if len(ranked_list) > max_items:
+        reranked.extend(ranked_list[max_items:])
+    return reranked
+
 def get_recommendation_candidates(G: nx.DiGraph, source_id: str, max_candidates: int = 500) -> List[str]:
     """
     Selects candidate nodes for recommendation based on type.
     """
-    if str(source_id) not in G:
+    source_id_str = str(source_id)
+    if source_id_str not in G:
         return []
         
-    source_type = G.nodes[source_id].get("type")
+    source_type = G.nodes[source_id_str].get("type")
     candidates = []
     
     target_type = "repo" # Default to repo for everyone (User request: "dont recommend any user")
@@ -35,7 +111,7 @@ def get_recommendation_candidates(G: nx.DiGraph, source_id: str, max_candidates:
         target_type = "repo"
         
     for node, data in G.nodes(data=True):
-        if str(node) == str(source_id):
+        if str(node) == source_id_str:
             continue
         ntype = data.get("type", "")
         
@@ -43,11 +119,11 @@ def get_recommendation_candidates(G: nx.DiGraph, source_id: str, max_candidates:
         if target_type == "repo" and ntype in ["repo", "github_repo", "project", "repository"]:
             candidates.append(node)
             
-    neighbors = set(G.neighbors(source_id))
+    neighbors = set(G.neighbors(source_id_str))
     candidates = [c for c in candidates if c not in neighbors]
     
     # Profile-based filtering: prioritize repos matching user's languages and topics
-    source_node = G.nodes[source_id]
+    source_node = G.nodes[source_id_str]
     user_languages = source_node.get("top_repo_languages", [])
     user_topics = source_node.get("topics", [])
     
@@ -103,21 +179,24 @@ def recommend_for_node(source_id: str, top_k: int = 10) -> List[Dict[str, Any]]:
     """
     Generates recommendations for a given node.
     """
+    # Normalize source_id to string for consistent access
+    source_id_str = str(source_id)
+    
     # 1. Load Graph & Embeddings
     G = load_graph_as_networkx()
-    if str(source_id) not in G:
+    if source_id_str not in G:
         print(f"Node {source_id} not found in graph.")
         return []
 
     # Get embeddings (will compute if missing)
     emb_dict = get_or_compute_embeddings(G)
     
-    if str(source_id) not in emb_dict:
+    if source_id_str not in emb_dict:
         # Fallback to simple candidates if no embedding
         emb_dict = {} 
         
     # 2. Select Candidates
-    candidates = get_recommendation_candidates(G, source_id)
+    candidates = get_recommendation_candidates(G, source_id_str)
     
     if not candidates:
         return []
@@ -125,18 +204,20 @@ def recommend_for_node(source_id: str, top_k: int = 10) -> List[Dict[str, Any]]:
     # 3. Compute Scores
     # A. Cosine Similarity
     if emb_dict:
-        cos_scores = cosine_similarity_scores(emb_dict, source_id, candidates)
+        cos_scores = cosine_similarity_scores(emb_dict, source_id_str, candidates)
     else:
         cos_scores = {c: 0.0 for c in candidates}
     
     # B. Heuristics
     G_undirected = G.to_undirected()
-    heur_scores = graph_heuristic_scores(G_undirected, source_id, candidates, method="jaccard")
+    heur_scores = graph_heuristic_scores(G_undirected, source_id_str, candidates, method="jaccard")
     
-    # C. Profile-based scoring (additional boost for matching languages/topics)
+    # C. Profile and role-based scoring (languages, topics, role keywords, stars)
     profile_scores = {}
-    user_languages = G.nodes[source_id].get("top_repo_languages", [])
-    user_topics = G.nodes[source_id].get("topics", [])
+    user_node = G.nodes[source_id_str]
+    user_languages = user_node.get("top_repo_languages", [])
+    user_topics = user_node.get("topics", [])
+    user_role = (user_node.get("ai_role") or user_node.get("predicted_role") or "").lower()
     
     lang_names = []
     if user_languages:
@@ -158,14 +239,25 @@ def recommend_for_node(source_id: str, top_k: int = 10) -> List[Dict[str, Any]]:
         
         # Language match
         if cand_lang and any(lang in cand_lang or cand_lang in lang for lang in lang_names):
-            profile_score += 0.2
+            profile_score += 0.25
         
         # Topic match
         for topic in topic_names:
             if topic in cand_text:
                 profile_score += 0.15
         
-        profile_scores[cand_id] = min(profile_score, 0.5)  # Cap at 0.5
+        # Role keyword match
+        if user_role:
+            role_tokens = [tok.strip() for tok in user_role.replace("/", " ").split() if tok]
+            if any(tok in cand_text for tok in role_tokens):
+                profile_score += 0.2
+        
+        # Star/quality hint (log-scaled)
+        stars = cand_data.get("stargazers_count") or cand_data.get("stars") or 0
+        if stars:
+            profile_score += min(np.log1p(stars) / 50.0, 0.3)
+        
+        profile_scores[cand_id] = min(profile_score, 0.9)  # Cap to keep balance
     
     # 4. Combine & Rank (with profile boost)
     ranked_list = combine_scores(cos_scores, heur_scores, alpha=0.7)
@@ -177,6 +269,9 @@ def recommend_for_node(source_id: str, top_k: int = 10) -> List[Dict[str, Any]]:
     
     # Re-sort after profile boost
     ranked_list.sort(key=lambda x: x[1], reverse=True)
+
+    # 4b. Embedding-based rerank using user role/languages/topics
+    ranked_list = _profile_rerank(ranked_list, G, user_node)
     
     # Limit preliminary list to larger pool for Gemini (e.g. top 20)
     preliminary_top = ranked_list[:20]
@@ -210,15 +305,8 @@ def recommend_for_node(source_id: str, top_k: int = 10) -> List[Dict[str, Any]]:
             }
         })
         
-    # 6. Apply Gemini Ranking
-    # Get user profile context
-    # Get user profile context
-    user_node = G.nodes[source_id]
-    profile_context = f"User: {user_node.get('name')}\nBio: {user_node.get('bio')}\nTopics: {user_node.get('topics')}\nLang: {user_node.get('top_repo_languages')}\n\nProject Analysis (from READMEs):\n{user_node.get('ai_analysis')}"
-    
-    final_results = rank_recommendations_with_gemini(results_for_llm, profile_context)
-    
-    return final_results[:top_k]
+    # 6. LLM rerank disabled; use locally ranked (reranked) results
+    return results_for_llm[:top_k]
 
 if __name__ == "__main__":
     print("--- Recommendation Service Demo ---")

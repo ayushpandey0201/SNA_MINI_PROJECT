@@ -27,6 +27,7 @@
   - Personalized repository recommendations
   - Role prediction and profile analysis
   - Interactive network visualization
+  - Multi-source project ideas search (GitHub, StackOverflow, Dev.to)
 
 ---
 
@@ -164,14 +165,41 @@
 
 ---
 
-## Slide 16: Data Flow Diagram
+## Slide 16: Key Features - Project Ideas Search
+- **User-Driven Search**: 
+  - Users enter any project idea, technology, or topic
+  - Example queries: "machine learning", "React hooks", "blockchain", "API design"
+- **Multi-Source Search** (Searches 3 platforms simultaneously):
+  - **GitHub Repositories**: 
+    - Finds code projects and libraries
+    - Shows: name, description, language, stars, forks
+    - Use: Discover projects to learn from or contribute to
+  - **StackOverflow Questions**: 
+    - Finds related questions and discussions
+    - Shows: question title, tags, score, answer status
+    - Use: Find problem-solving approaches
+  - **Dev.to Articles**: 
+    - Finds technical articles and tutorials
+    - Shows: title, author, year, description
+    - Use: Learn technologies and best practices
+- **Features**:
+  - Real-time parallel search across all sources
+  - Independent pagination for each source
+  - Unified results display
+  - Direct links to original sources
+- **Use Case**: One-stop search for project ideas, solutions, and learning resources
+
+---
+
+## Slide 17: Data Flow Diagram
 - **Enrichment Flow**: User Input → Fetch Data → Process → Build Graph → Store
 - **Recommendation Flow**: Profile → Embeddings → Scoring → Ranking → Results
+- **Project Search Flow**: Query → Parallel API Calls (GitHub, SO, Dev.to) → Aggregate → Display
 - **Metrics Flow**: Node ID → Load Graph → Compute → Return
 
 ---
 
-## Slide 17: Implementation Highlights
+## Slide 18: Implementation Highlights
 - **Database**: SQLite with JSON attributes
 - **Caching**: Embeddings cached for performance
 - **Error Handling**: Graceful fallbacks
@@ -180,7 +208,7 @@
 
 ---
 
-## Slide 18: Results and Outcomes
+## Slide 19: Results and Outcomes
 - ✅ Successfully builds knowledge graphs
 - ✅ Detects developer communities
 - ✅ Provides personalized recommendations
@@ -189,7 +217,7 @@
 
 ---
 
-## Slide 19: Challenges and Solutions
+## Slide 20: Challenges and Solutions
 - **Challenge**: API Rate Limits
   - **Solution**: Caching, polite delays, fallbacks
 - **Challenge**: Large Graph Performance
@@ -199,7 +227,7 @@
 
 ---
 
-## Slide 20: Future Improvements
+## Slide 21: Future Improvements
 - **Short-Term**:
   - More data sources (GitLab, Bitbucket)
   - Real-time updates
@@ -212,13 +240,14 @@
 
 ---
 
-## Slide 21: Demo / Screenshots
+## Slide 22: Demo / Screenshots
 - **Screenshots to Include**:
   1. Main search interface
   2. Profile card with metrics
   3. Network graph visualization
   4. Recommendations panel
-  5. Community highlighting
+  5. Project search results (GitHub, StackOverflow, Research)
+  6. Community highlighting
 - **Live Demo** (if possible):
   - Search for a user
   - Show network graph
@@ -227,7 +256,7 @@
 
 ---
 
-## Slide 22: Technical Achievements
+## Slide 23: Technical Achievements
 - **Algorithms Implemented**:
   - Node2Vec for embeddings
   - Louvain for community detection
@@ -238,7 +267,7 @@
 
 ---
 
-## Slide 23: Learning Outcomes
+## Slide 24: Learning Outcomes
 - **Skills Developed**:
   - Social Network Analysis
   - Graph algorithms and embeddings
@@ -253,7 +282,7 @@
 
 ---
 
-## Slide 24: Conclusion
+## Slide 25: Conclusion
 - **Summary**: GitStack Connect successfully combines SNA, ML, and AI
 - **Impact**: Helps developers understand their network position and discover projects
 - **Value**: Practical tool with real-world applications
@@ -261,7 +290,7 @@
 
 ---
 
-## Slide 25: Q&A
+## Slide 26: Q&A
 - **Questions?**
 - **Contact Information**
 - **GitHub Repository** (if public)
@@ -288,9 +317,9 @@
 - Introduction (2 min): Slides 1-3
 - Architecture & Tech Stack (3 min): Slides 4-6
 - Algorithms & Methodologies (5 min): Slides 7-11
-- Features & Demo (6 min): Slides 12-16, 21
-- Results & Future (3 min): Slides 17-20
-- Conclusion & Q&A (1 min): Slides 22-25
+- Features & Demo (6 min): Slides 12-17, 22
+- Results & Future (3 min): Slides 18-21
+- Conclusion & Q&A (1 min): Slides 23-26
 
 ### Additional Materials
 - Prepare backup slides for detailed algorithm explanations

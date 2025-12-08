@@ -11,5 +11,3 @@ sentence-transformers
 aiohttp
 beautifulsoup4
 lxml
-google-generativeai
-groq

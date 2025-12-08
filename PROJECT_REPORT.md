@@ -21,6 +21,7 @@ GitStack Connect addresses these challenges by:
 - **Intelligent Recommendations**: Providing personalized repository suggestions based on profile analysis
 - **Role Prediction**: Automatically classifying developer roles using AI and rule-based methods
 - **Visual Analytics**: Interactive network visualization with centrality metrics
+- **Project Ideas Search**: Multi-source search across GitHub, StackOverflow, and Dev.to for discovering projects, solutions, and learning resources
 
 ### 1.3 Key Objectives
 1. Aggregate developer data from multiple sources (GitHub, StackOverflow)
@@ -351,13 +352,29 @@ GitStack Connect addresses these challenges by:
   - Probability distribution over roles
   - Confidence scores
 
-### 5.6 Project Search
-- **Multi-Source Search**:
-  - GitHub repositories
-  - StackOverflow questions
-  - Research papers
-- **Pagination**: Independent pagination for each source
-- **Filtering**: Query-based search across all sources
+### 5.6 Project Ideas Search
+- **User-Initiated Search**: Users can enter any project idea, technology, or topic in the search interface
+- **Multi-Source Search**: Simultaneously searches across three platforms:
+  - **GitHub Repositories**: Finds relevant code projects, libraries, and repositories
+    - Returns: Repository name, description, language, stars, forks, URL
+    - Use case: Discover existing projects to learn from or contribute to
+  - **StackOverflow Questions**: Finds related questions and discussions
+    - Returns: Question title, tags, score, answer status, link
+    - Use case: Find problem-solving approaches and community discussions
+  - **Dev.to Articles**: Finds technical articles and tutorials (research papers)
+    - Returns: Article title, author, publication year, description, URL
+    - Use case: Learn about technologies, best practices, and recent trends
+- **Features**:
+  - **Query-Based Search**: Users enter any search term (e.g., "machine learning", "React hooks", "blockchain")
+  - **Independent Pagination**: Each source has its own pagination controls
+  - **Real-Time Results**: Fetches results from all three APIs simultaneously
+  - **Unified Display**: Results from all sources displayed in organized tabs/sections
+- **Workflow**:
+  1. User enters a project idea or technology query
+  2. System searches GitHub, StackOverflow, and Dev.to in parallel
+  3. Results are displayed in separate sections for each source
+  4. Users can navigate through pages independently for each source
+  5. Clicking on any result opens the original source in a new tab
 
 ---
 
@@ -415,7 +432,29 @@ LLM-Based Ranking (Groq)
 Return Top Recommendations
 ```
 
-### 6.3 Metrics Computation Flow
+### 6.3 Project Ideas Search Flow
+
+```
+User Enters Query (e.g., "machine learning", "React hooks")
+    ↓
+Parallel API Calls
+    ├─ GitHub API → Search Repositories
+    ├─ StackOverflow API → Search Questions
+    └─ Dev.to API → Search Articles
+    ↓
+Aggregate Results
+    ├─ GitHub: Repos with metadata (name, description, language, stars)
+    ├─ StackOverflow: Questions with tags and scores
+    └─ Dev.to: Articles with descriptions and authors
+    ↓
+Return Unified Results
+    ↓
+Display in Separate Sections with Independent Pagination
+    ↓
+User Can Navigate Pages and Click Links to Original Sources
+```
+
+### 6.4 Metrics Computation Flow
 
 ```
 User Node ID
@@ -473,7 +512,7 @@ Return Metrics + Community Info
 | `/recommend/{node_id}` | GET | Get repository recommendations |
 | `/predict/{user_id}` | GET | Predict developer role |
 | `/metrics/{node_id}` | GET | Compute network metrics |
-| `/search/project` | GET | Search projects across sources |
+| `/search/project` | GET | Search project ideas across GitHub, StackOverflow, and Dev.to |
 
 ### 7.4 Error Handling
 - **API Failures**: Graceful fallback to rule-based methods

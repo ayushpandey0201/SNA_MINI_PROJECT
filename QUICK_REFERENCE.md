@@ -47,6 +47,12 @@
 4. Profile boost (language/topic match)
 5. LLM-based final ranking
 
+### 5. Project Ideas Search
+- **Sources**: GitHub repositories, StackOverflow questions, Dev.to articles
+- **Method**: Parallel API calls with independent pagination
+- **Query**: User enters any project idea, technology, or topic
+- **Results**: Unified display with separate sections for each source
+
 ---
 
 ## API Endpoints
@@ -57,7 +63,7 @@
 | `/recommend/{node_id}` | GET | Get recommendations |
 | `/predict/{user_id}` | GET | Predict role |
 | `/metrics/{node_id}` | GET | Network metrics |
-| `/search/project` | GET | Search projects |
+| `/search/project` | GET | Search project ideas across GitHub, StackOverflow, and Dev.to |
 
 ---
 
@@ -67,6 +73,8 @@
 User Input → GitHub API → Data Processing → Graph Building → Storage
                                                       ↓
 Recommendations ← LLM Ranking ← Scoring ← Embeddings ← Graph
+
+Project Search: Query → Parallel API Calls (GitHub, SO, Dev.to) → Unified Results
 ```
 
 ---
@@ -79,6 +87,7 @@ Recommendations ← LLM Ranking ← Scoring ← Embeddings ← Graph
 4. **Recommendations**: Multi-stage personalized repository suggestions
 5. **Role Prediction**: AI + rule-based classification
 6. **Network Metrics**: Centrality measures with explanations
+7. **Project Ideas Search**: Multi-source search (GitHub repos, StackOverflow questions, Dev.to articles)
 
 ---
 
@@ -145,6 +154,7 @@ J(A,B) = |A ∩ B| / |A ∪ B|
 - **Enrichment**: 5-15 seconds per user
 - **Recommendations**: 1-3 seconds
 - **Metrics**: <1 second
+- **Project Search**: 1-2 seconds (parallel API calls)
 - **Graph Rendering**: Real-time
 
 ---
@@ -156,6 +166,7 @@ J(A,B) = |A ∩ B| / |A ∪ B|
 3. **Community Detection**: Identify developer clusters
 4. **Profile Analysis**: Get comprehensive developer insights
 5. **Role Prediction**: Automatically classify developer roles
+6. **Project Ideas Search**: Enter any query to find projects, solutions, and articles from GitHub, StackOverflow, and Dev.to
 
 ---
 

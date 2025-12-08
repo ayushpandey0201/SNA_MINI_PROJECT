@@ -155,6 +155,7 @@ def recommend_endpoint(node_id: str, limit: int = 7):
     # Ensure graph is loaded
     data = get_graph_data()
     G = data["G"]
+    G_u = data.get("undirected_G") or G.to_undirected()
     
     if node_id not in G:
         raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found in the graph.")
@@ -186,19 +187,20 @@ def recommend_endpoint(node_id: str, limit: int = 7):
             # Simple heuristic: Check node data or neighbor repos
             # Since strict node structure varies, we check neighbors for repo data
             for n in G.neighbors(node_id):
-                node = G.nodes[n]
-                if node.get('type') == 'github_repo':
-                    l = node.get('language')
+                neighbor_node = G.nodes[n]
+                if neighbor_node.get('type') == 'github_repo':
+                    l = neighbor_node.get('language')
                     if l: langs.append(l)
                     
                     # Topics might be stored as comma-sep string or list? 
                     # In enrich.py 'topics' is a list.
-                    t_list = node.get('topics', [])
+                    t_list = neighbor_node.get('topics', [])
                     if isinstance(t_list, list):
                         topics.extend(t_list)
             
             # Add AI-derived context if available (from README analysis)
-            ai_role = node.get('ai_role')
+            # Use node_data (user node) not neighbor_node (last repo in loop)
+            ai_role = node_data.get('ai_role')
             if ai_role:
                 query_parts.append(ai_role.replace(' ', '+'))
             
@@ -378,20 +380,23 @@ def get_network_metrics(node_id: str):
     """
     data = get_graph_data()
     G = data["G"]
+    G_u = data.get("undirected_G") or G.to_undirected()
     
     if node_id not in G:
          raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found.")
          
     try:
-        # Degree Centrality (normalized)
-        degree = nx.degree_centrality(G).get(node_id, 0)
+        # Degree Centrality (normalized) on undirected graph for better connectivity handling
+        degree = nx.degree_centrality(G_u).get(node_id, 0)
         
-        # Betweenness Centrality (expensive, so we limit k if graph is huge, but here it's small)
-        # For better performance on larger graphs, use k=100 or similar approximation
-        betweenness = nx.betweenness_centrality(G, k=None).get(node_id, 0)
+        # Betweenness Centrality on undirected graph (less zeroed for weakly connected graphs)
+        betweenness = nx.betweenness_centrality(G_u, k=None).get(node_id, 0)
         
-        # Closeness Centrality
-        closeness = nx.closeness_centrality(G, u=node_id)
+        # Closeness Centrality on undirected graph; guard disconnected cases
+        try:
+            closeness = nx.closeness_centrality(G_u, u=node_id)
+        except Exception:
+            closeness = 0.0
         
         # Composite Influence Score (0-100)
         # Weighted combination of centralities (removed eigenvector as requested)
@@ -403,7 +408,7 @@ def get_network_metrics(node_id: str):
         # For performance, we might cache this, but for now we run it on demand for the demo
         try:
             # Louvain Community Detection (Requested by User)
-            communities = nx.community.louvain_communities(data["undirected_G"], seed=42)
+            communities = nx.community.louvain_communities(G_u, seed=42)
             
             # Find community ID for the target node
             node_community_id = -1

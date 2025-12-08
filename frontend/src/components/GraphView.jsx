@@ -785,22 +785,6 @@ const GraphView = ({ profile, recommendations, showRecommendations, metrics, pre
                             Collaborator
                         </span>
                     </div>
-                    
-                    {/* Repository Owner */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                        <div 
-                            style={{ 
-                                width: '14px', 
-                                height: '14px', 
-                                borderRadius: '50%', 
-                                backgroundColor: '#6366f1',
-                                flexShrink: 0
-                            }} 
-                        />
-                        <span style={{ color: '#64748b', fontSize: '0.8rem' }}>
-                            Repository Owner
-                        </span>
-                    </div>
                 </div>
                 
                 {/* Hover Popup */}

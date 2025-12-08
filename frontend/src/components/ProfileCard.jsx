@@ -155,9 +155,9 @@ const ProfileCard = ({ profile, prediction, metrics }) => {
                         <div className="stat-row">
                             <span>Badges</span>
                             <span className="badges">
-                                <span className="badge gold">● {so_stats.badge_counts?.gold || 0}</span>
-                                <span className="badge silver">● {so_stats.badge_counts?.silver || 0}</span>
-                                <span className="badge bronze">● {so_stats.badge_counts?.bronze || 0}</span>
+                                <span className="badge gold">Gold ({so_stats.badge_counts?.gold || 0})</span>
+                                <span className="badge silver">Silver ({so_stats.badge_counts?.silver || 0})</span>
+                                <span className="badge bronze">Bronze ({so_stats.badge_counts?.bronze || 0})</span>
                             </span>
                         </div>
                     </div>
@@ -212,9 +212,9 @@ const ProfileCard = ({ profile, prediction, metrics }) => {
                                 tooltip="Closeness Centrality measures how close a node is to all other nodes in the network. Higher values indicate the node can reach all other nodes quickly. Calculated as: (number of nodes - 1) / (sum of shortest distances to all other nodes)."
                             />
                             <MetricBox 
-                                label="Influence Score" 
-                                value={metrics.influence_score}
-                                tooltip="Influence Score is a composite metric (0-100) that combines Degree, Betweenness, and Closeness centralities. Formula: (Degree × 0.4 + Betweenness × 0.4 + Closeness × 0.2) × 100. Higher scores indicate greater overall network influence."
+                                label="Activity Score" 
+                                value={`${Math.round(metrics.influence_score || 0)}%`}
+                                tooltip="Activity Score summarizes network engagement using centralities: Degree (0.4), Betweenness (0.4), Closeness (0.2), scaled to ~0–100. Higher means more connected, bridging, and reachable."
                                 highlight={true}
                             />
                         </div>

@@ -17,6 +17,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showRecommendations] = useState(true);
+  const [isGraphFullScreen, setIsGraphFullScreen] = useState(false);
 
   // New State for Project Search
   const [searchMode, setSearchMode] = useState('user'); // 'user' or 'project'
@@ -172,11 +173,16 @@ function App() {
                 </div>
               )}
 
-              <div className="panel-header">
+              <div className="panel-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <h2>Network Graph</h2>
+                <button
+                  type="button"
+                  onClick={() => setIsGraphFullScreen(true)}
+                  style={{ padding: '6px 10px', fontSize: '0.9rem' }}
+                >
+                  Full Screen
+                </button>
               </div>
-
-
 
               <GraphView
                 profile={profile}
@@ -216,6 +222,45 @@ function App() {
         )
         }
       </main >
+      {/* Fullscreen Graph Overlay */}
+      {isGraphFullScreen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            background: '#fff',
+            zIndex: 1000,
+            display: 'flex',
+            flexDirection: 'column',
+            padding: '12px',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <h2 style={{ margin: 0 }}>Network Graph</h2>
+            <button
+              type="button"
+              onClick={() => setIsGraphFullScreen(false)}
+              style={{ padding: '6px 10px', fontSize: '0.9rem' }}
+            >
+              Minimize
+            </button>
+          </div>
+          <div style={{ flex: 1, border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+            <GraphView
+              profile={profile}
+              recommendations={recommendations}
+              showRecommendations={showRecommendations}
+              metrics={metrics}
+              prediction={prediction}
+              style={{ width: '100%', height: '100%' }}
+              focusedNodeId={focusedNodeId}
+            />
+          </div>
+        </div>
+      )}
     </div >
   );
 }
