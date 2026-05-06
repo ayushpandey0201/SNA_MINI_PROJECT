@@ -147,10 +147,15 @@ def read_root():
 from backend.recommendation import recommend_for_node
 
 @app.get("/recommend/{node_id}")
-def recommend_endpoint(node_id: str, limit: int = 7):
+def recommend_endpoint(node_id: str, limit: int = 5):
     """
-    Get top-K recommendations for a given node based on graph embeddings and topology.
-    Falls back to GitHub Search if local recommendations are insufficient.
+    Get top 4-5 personalized repository recommendations for a user.
+    
+    Recommendations are based on:
+    - User's predicted role
+    - User's profile (languages, topics, interests)
+    - User's work
+    - Top similarity scores (only scores >= 50%)
     """
     # Ensure graph is loaded
     data = get_graph_data()
@@ -162,13 +167,20 @@ def recommend_endpoint(node_id: str, limit: int = 7):
         
     try:
         # 1. Local Graph Recommendations using new Service
-        local_recs = recommend_for_node(node_id, top_k=limit)
+        # Limit to 4-5 repositories with scores >= 0.5
+        requested_limit = min(max(4, limit), 5)  # Enforce 4-5 range
+        local_recs = recommend_for_node(node_id, top_k=requested_limit)
         
-        results = local_recs
+        # Filter to ensure only scores >= 0.5 (50%)
+        MINIMUM_SCORE = 0.5
+        results = [rec for rec in local_recs if rec.get("score", 0) >= MINIMUM_SCORE]
         
-        # 2. Fallback: GitHub Search API
-        # If we have fewer than 'limit' results, fetch external suggestions
-        if len(results) < limit:
+        # Limit to requested number (4-5)
+        results = results[:requested_limit]
+        
+        # 2. Fallback: GitHub Search API (only if we have fewer than 4 good results)
+        # Only fetch external suggestions if we have very few good recommendations
+        if len(results) < 4:
             needed = limit - len(results)
             logger.info(f"Local graph returned only {len(results)} recommendations. Fetching {needed} from GitHub API...")
             
@@ -227,7 +239,7 @@ def recommend_endpoint(node_id: str, limit: int = 7):
             existing_ids = {r["node_id"] for r in results}
             
             for item in external_repos.get("items", []):
-                if len(results) >= limit:
+                if len(results) >= requested_limit:
                     break
                     
                 # Avoid recommending self-owned or already recommended
@@ -246,27 +258,55 @@ def recommend_endpoint(node_id: str, limit: int = 7):
                     
                 if repo_name not in existing_ids:
                     # Format as recommendation result
-                    results.append({
-                        "node_id": repo_name,
-                        "label": item.get('full_name') or item.get('name'), # Explicit label
-                        "type": "repository", # Explicit type
-                        "score": 0.5, # Lower score than local graph matches
-                        "features": {
-                            "source": "github_fallback",
+                    # Assign a score based on profile match (must be >= 0.5)
+                    fallback_score = 0.5  # Minimum acceptable score
+                    
+                    # Boost score based on user profile match
+                    node_data = G.nodes[node_id]
+                    user_langs = node_data.get('top_repo_languages', [])
+                    user_topics = node_data.get('topics', [])
+                    
+                    item_lang = str(item.get('language', '')).lower()
+                    item_desc = (item.get('description', '') + ' ' + item.get('name', '')).lower()
+                    
+                    # Check language match
+                    if user_langs and item_lang:
+                        for lang_tuple in user_langs[:3]:
+                            user_lang = (lang_tuple[0] if isinstance(lang_tuple, (list, tuple)) else str(lang_tuple)).lower()
+                            if user_lang in item_lang or item_lang in user_lang:
+                                fallback_score = 0.6
+                                break
+                    
+                    # Check topic/interest match
+                    if user_topics:
+                        for topic in user_topics[:3]:
+                            if str(topic).lower() in item_desc:
+                                fallback_score = min(fallback_score + 0.1, 0.7)
+                                break
+                    
+                    # Only add if score is >= 0.5
+                    if fallback_score >= 0.5:
+                        results.append({
+                            "node_id": repo_name,
+                            "label": item.get('full_name') or item.get('name'), # Explicit label
+                            "type": "repository", # Explicit type
+                            "score": round(fallback_score, 4), # Score based on profile match
+                            "features": {
+                                "source": "github_fallback",
+                                "language": item.get('language'),
+                                "stars": item.get('stargazers_count')
+                            },
+                            "name": item.get('name'),
+                            "full_name": item.get('full_name'),
+                            "description": item.get('description'),
+                            "html_url": item.get('html_url'),
                             "language": item.get('language'),
-                            "stars": item.get('stargazers_count')
-                        },
-                        "name": item.get('name'),
-                        "full_name": item.get('full_name'),
-                        "description": item.get('description'),
-                        "html_url": item.get('html_url'),
-                        "language": item.get('language'),
-                        "stargazers_count": item.get('stargazers_count')
-                    })
-                    existing_ids.add(repo_name)
+                            "stargazers_count": item.get('stargazers_count')
+                        })
+                        existing_ids.add(repo_name)
 
-        # Slice to requested limit (user asked for 4-6, standard is 10)
-        return results[:limit]
+        # Return top 4-5 recommendations (all with scores >= 0.5)
+        return results[:requested_limit]
     except Exception as e:
         logger.error(f"Recommendation error: {e}")
         # Return whatever we have or empty list instead of 500
@@ -387,21 +427,25 @@ def get_network_metrics(node_id: str):
          
     try:
         # Degree Centrality (normalized) on undirected graph for better connectivity handling
-        degree = nx.degree_centrality(G_u).get(node_id, 0)
+        # NetworkX returns 0-1, we convert to 0-100 for consistency
+        degree = nx.degree_centrality(G_u).get(node_id, 0) * 100
         
         # Betweenness Centrality on undirected graph (less zeroed for weakly connected graphs)
-        betweenness = nx.betweenness_centrality(G_u, k=None).get(node_id, 0)
+        # NetworkX returns 0-1, we convert to 0-100 for consistency
+        betweenness = nx.betweenness_centrality(G_u, k=None).get(node_id, 0) * 100
         
         # Closeness Centrality on undirected graph; guard disconnected cases
+        # NetworkX returns 0-1, we convert to 0-100 for consistency
         try:
-            closeness = nx.closeness_centrality(G_u, u=node_id)
+            closeness = nx.closeness_centrality(G_u, u=node_id) * 100
         except Exception:
             closeness = 0.0
         
         # Composite Influence Score (0-100)
         # Weighted combination of centralities (removed eigenvector as requested)
-        # Formula: (degree * 0.4 + betweenness * 0.4 + closeness * 0.2) * 100
-        influence_score = (degree * 0.4 + betweenness * 0.4 + closeness * 0.2) * 100
+        # Formula: (degree * 0.4 + betweenness * 0.4 + closeness * 0.2)
+        # All centralities are now in 0-100 range, so we use them directly
+        influence_score = (degree * 0.4 + betweenness * 0.4 + closeness * 0.2)
         
         # Community Detection (Greedy Modularity)
         # We compute this for the whole graph (or subgraph) to find which community the node belongs to
@@ -428,10 +472,10 @@ def get_network_metrics(node_id: str):
             community_map = {}
 
         return {
-            "degree_centrality": round(degree, 4),
-            "betweenness_centrality": round(betweenness, 4),
-            "closeness_centrality": round(closeness, 4),
-            "influence_score": round(influence_score, 1),
+            "degree_centrality": round(degree, 2),
+            "betweenness_centrality": round(betweenness, 2),
+            "closeness_centrality": round(closeness, 2),
+            "influence_score": round(influence_score, 2),
             "community_id": node_community_id,
             "community_map": community_map
         }

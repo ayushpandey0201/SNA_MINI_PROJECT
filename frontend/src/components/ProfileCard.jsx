@@ -198,23 +198,23 @@ const ProfileCard = ({ profile, prediction, metrics }) => {
                         <div className="stats-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                             <MetricBox 
                                 label="Degree" 
-                                value={metrics.degree_centrality}
-                                tooltip="Degree Centrality measures how many direct connections a node has. Higher values indicate more direct connections to other nodes in the network. Calculated as: (number of connections) / (total possible connections)."
+                                value={`${Math.round(metrics.degree_centrality || 0)}%`}
+                                tooltip="Degree Centrality measures how many direct connections a node has. Higher values indicate more direct connections to other nodes in the network. Calculated as: (number of connections) / (total possible connections). Range: 0-100%."
                             />
                             <MetricBox 
                                 label="Betweenness" 
-                                value={metrics.betweenness_centrality}
-                                tooltip="Betweenness Centrality measures how often a node acts as a bridge along the shortest path between two other nodes. Higher values indicate the node is crucial for connecting different parts of the network. Calculated by counting shortest paths that pass through this node."
+                                value={`${Math.round(metrics.betweenness_centrality || 0)}%`}
+                                tooltip="Betweenness Centrality measures how often a node acts as a bridge along the shortest path between two other nodes. Higher values indicate the node is crucial for connecting different parts of the network. Calculated by counting shortest paths that pass through this node. Range: 0-100%."
                             />
                             <MetricBox 
                                 label="Closeness" 
-                                value={metrics.closeness_centrality}
-                                tooltip="Closeness Centrality measures how close a node is to all other nodes in the network. Higher values indicate the node can reach all other nodes quickly. Calculated as: (number of nodes - 1) / (sum of shortest distances to all other nodes)."
+                                value={`${Math.round(metrics.closeness_centrality || 0)}%`}
+                                tooltip="Closeness Centrality measures how close a node is to all other nodes in the network. Higher values indicate the node can reach all other nodes quickly. Calculated as: (number of nodes - 1) / (sum of shortest distances to all other nodes). Range: 0-100%."
                             />
                             <MetricBox 
-                                label="Activity Score" 
+                                label="Influence Score" 
                                 value={`${Math.round(metrics.influence_score || 0)}%`}
-                                tooltip="Activity Score summarizes network engagement using centralities: Degree (0.4), Betweenness (0.4), Closeness (0.2), scaled to ~0–100. Higher means more connected, bridging, and reachable."
+                                tooltip="Influence Score is a composite metric (0-100%) combining network centralities: Degree Centrality (40%), Betweenness Centrality (40%), and Closeness Centrality (20%). All centralities are normalized to 0-100% range, then weighted and combined. Higher scores indicate greater network influence through connectivity, bridging roles, and reachability."
                                 highlight={true}
                             />
                         </div>

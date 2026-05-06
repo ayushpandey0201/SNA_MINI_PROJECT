@@ -5,7 +5,7 @@ import GraphView from './components/GraphView';
 import ProjectResults from './components/ProjectResults';
 import TopRecommendations from './components/TopRecommendations';
 import { fetchProfile, fetchRecommendations, fetchPrediction, fetchMetrics, fetchProjectIdeas } from './api';
-import { Search, Activity, Lightbulb, User } from 'lucide-react';
+import { Search, Lightbulb, User } from 'lucide-react';
 
 function App() {
   const [username, setUsername] = useState('');
@@ -105,8 +105,7 @@ function App() {
     <div className="app-container">
       <header className="app-header">
         <div className="logo">
-          <Activity size={28} />
-          <h1>GitStack Connect</h1>
+          <h1>GitHub Developer Collaboration Network Analysis</h1>
         </div>
         <p>GitHub & StackOverflow Network Analysis</p>
       </header>
